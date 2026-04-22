@@ -210,14 +210,23 @@ def _read_input(input_file: str | None) -> str:
 def _cmd_install(args: argparse.Namespace) -> int:
     module_path = Path(__file__).resolve().parent.parent
     python_exe = args.python
-    # ``PYTHONSAFEPATH=1`` prevents Python from auto-prepending the cwd to
-    # ``sys.path``. Cursor runs hooks with ``cwd=~/.cursor``, and the default
-    # install dir is ``~/.cursor/crosshair`` — without this flag, Python would
-    # resolve ``import crosshair`` as a namespace package pointing at the
-    # install dir, shadowing the real editable install and crashing every
-    # hook invocation with ``ImportError: cannot import name '__version__'
-    # from 'crosshair' (unknown location)``.
-    hook_cmd = f'/usr/bin/env PYTHONSAFEPATH=1 {python_exe} -m crosshair hook {{name}}'
+    # Cursor runs hooks with ``cwd=~/.cursor``, and the default install dir is
+    # ``~/.cursor/crosshair``. Any ``sys.path`` entry that resolves to
+    # ``~/.cursor`` turns our install directory into a namespace package and
+    # shadows the real editable install, crashing every hook with ``ImportError:
+    # cannot import name '…' from 'crosshair' (unknown location)``.
+    #
+    # Two things can inject ``~/.cursor`` onto ``sys.path``:
+    #   1. Python's default behaviour of prepending the cwd ('') — suppressed
+    #      by ``PYTHONSAFEPATH=1``.
+    #   2. An inherited ``PYTHONPATH`` containing ``.`` (common in dev shells,
+    #      e.g. ``PYTHONPATH=.:src/py``) — suppressed by ``env -u PYTHONPATH``.
+    #
+    # Doing both makes the hook robust regardless of the user's shell env.
+    hook_cmd = (
+        f"/usr/bin/env -u PYTHONPATH PYTHONSAFEPATH=1 "
+        f"{python_exe} -m crosshair hook {{name}}"
+    )
 
     hooks_file = expand(args.hooks_file)
     existing: dict[str, Any] = {}
