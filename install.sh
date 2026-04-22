@@ -52,5 +52,7 @@ echo "[crosshair] done."
 echo "  status:   ${VENV_PY} -m crosshair status"
 echo "  analyze:  ${VENV_PY} -m crosshair analyze"
 echo "  handoff:  ${VENV_PY} -m crosshair handoff"
+echo "  rtk list: ${VENV_PY} -m crosshair rtk list"
+echo "  rtk gain: ${VENV_PY} -m crosshair rtk gain"
 echo
 echo "  Restart Cursor (or open a new composer) for the hooks to take effect."

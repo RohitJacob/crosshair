@@ -46,6 +46,8 @@ def render_report(path: Path, days: int | None = None) -> dict[str, Any]:
     safepoint_signal_counts: Counter[str] = Counter()
     tool_calls = 0
     tool_failures = 0
+    rtk_rewrites = 0
+    rtk_passthrough = 0
     estimated_tokens = 0
     last_token_per_conv: dict[str, int] = {}
 
@@ -67,12 +69,20 @@ def render_report(path: Path, days: int | None = None) -> dict[str, Any]:
             tool_calls += 1
             if evt.get("failure_type"):
                 tool_failures += 1
+        elif name == "rtk_rewrite":
+            if evt.get("action") == "rewrite":
+                rtk_rewrites += 1
+            else:
+                rtk_passthrough += 1
         conv_id = evt.get("conversation_id")
         tokens = evt.get("estimated_tokens")
         if isinstance(conv_id, str) and isinstance(tokens, int):
             last_token_per_conv[conv_id] = tokens
 
     estimated_tokens = sum(last_token_per_conv.values())
+
+    # Augment with rtk tracking log if available.
+    rtk_totals = _rtk_totals()
 
     return {
         "summary": {"total_events": total, "days": days},
@@ -89,5 +99,25 @@ def render_report(path: Path, days: int | None = None) -> dict[str, Any]:
             "calls": tool_calls,
             "failures": tool_failures,
         },
+        "rtk": {
+            "rewrites": rtk_rewrites,
+            "passthrough": rtk_passthrough,
+            **rtk_totals,
+        },
         "tokens": {"estimated": estimated_tokens},
+    }
+
+
+def _rtk_totals() -> dict[str, Any]:
+    """Read the rtk tracking log and return aggregate savings."""
+    try:
+        from crosshair.rtk.tracking import iter_events, summarise
+    except Exception:  # noqa: BLE001 — analytics is best-effort
+        return {"runs": 0, "saved_tokens": 0, "savings_pct": 0.0}
+    summary = summarise(iter_events())
+    totals = summary.get("totals", {}) or {}
+    return {
+        "runs": totals.get("runs", 0),
+        "saved_tokens": totals.get("saved_tokens", 0),
+        "savings_pct": totals.get("savings_pct", 0.0),
     }

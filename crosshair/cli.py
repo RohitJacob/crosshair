@@ -33,7 +33,14 @@ HOOK_EVENT_MAP = {
     "post-tool": "postToolUse",
     "after-file-edit": "afterFileEdit",
     "pre-compact": "preCompact",
+    "pre-tool-use": "preToolUse",
     "stop": "stop",
+}
+
+# Hooks that need a Cursor matcher. preToolUse only fires for Shell calls in
+# our case — both the rtk rewrite and the router-allow live behind that.
+HOOK_MATCHERS: dict[str, str] = {
+    "pre-tool-use": "Shell",
 }
 
 CURSOR_HOOKS_JSON = Path("~/.cursor/hooks.json")
@@ -59,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
     inst.add_argument("--python", default=sys.executable, help="Python interpreter to use")
     inst.add_argument("--dry-run", action="store_true", help="Print plan without writing")
     inst.add_argument("--hooks-file", default=str(CURSOR_HOOKS_JSON))
+    inst.add_argument(
+        "--no-rtk",
+        action="store_true",
+        help="Install router/safepoint hooks only; skip the rtk preToolUse rewrite hook",
+    )
 
     un = sub.add_parser("uninstall", help="Remove crosshair hooks from Cursor hooks.json")
     un.add_argument("--hooks-file", default=str(CURSOR_HOOKS_JSON))
@@ -81,6 +93,21 @@ def main(argv: list[str] | None = None) -> int:
     cfg = sub.add_parser("config", help="Print or edit config paths")
     cfg.add_argument("--init", action="store_true", help="Write a user config stub if missing")
 
+    # rtk — we dispatch manually because argparse can't mix subparsers with
+    # REMAINDER (we need to accept `crosshair rtk git status -s` verbatim).
+    rtk = sub.add_parser(
+        "rtk",
+        help="Token-savings filters for common shell commands",
+        description=(
+            "Run a shell command through an rtk filter, or inspect state.\n"
+            "  crosshair rtk list           — supported commands\n"
+            "  crosshair rtk gain           — local savings summary\n"
+            "  crosshair rtk rewrite <cmd>  — show what the rewriter would do\n"
+            "  crosshair rtk <cmd> [args]   — run a command through its filter"
+        ),
+    )
+    rtk.add_argument("rtk_argv", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+
     args = parser.parse_args(argv)
     config = load_config()
 
@@ -102,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_reset(config, args.conversation_id)
     if args.command == "config":
         return _cmd_config(args)
+    if args.command == "rtk":
+        return _cmd_rtk(args, config)
     parser.print_help()
     return 1
 
@@ -182,7 +211,14 @@ def _cmd_install(args: argparse.Namespace) -> int:
             )
             return 2
 
-    merged = _merge_hooks(existing, hook_cmd, python_exe=python_exe, module_root=module_path)
+    include_rtk = not getattr(args, "no_rtk", False)
+    merged = _merge_hooks(
+        existing,
+        hook_cmd,
+        python_exe=python_exe,
+        module_root=module_path,
+        include_rtk=include_rtk,
+    )
 
     if args.dry_run:
         print(json.dumps(merged, indent=2))
@@ -211,12 +247,26 @@ def _merge_hooks(
     *,
     python_exe: str,
     module_root: Path,
+    include_rtk: bool = True,
 ) -> dict[str, Any]:
     out: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
     out.setdefault("version", 1)
     hooks = dict(out.get("hooks") or {})
 
     for short, cursor_name in HOOK_EVENT_MAP.items():
+        if short == "pre-tool-use" and not include_rtk:
+            # User opted out of rtk — also scrub any previous crosshair entry.
+            cleaned = [
+                e
+                for e in (hooks.get(cursor_name) or [])
+                if not (isinstance(e, dict) and "crosshair" in str(e.get("command", "")))
+            ]
+            if cleaned:
+                hooks[cursor_name] = cleaned
+            else:
+                hooks.pop(cursor_name, None)
+            continue
+
         entries: list[dict[str, Any]] = list(hooks.get(cursor_name) or [])
         cmd = hook_cmd_template.format(name=short)
         # Dedupe: remove any previous crosshair entries first so re-running install is idempotent.
@@ -225,12 +275,10 @@ def _merge_hooks(
             for e in entries
             if not (isinstance(e, dict) and "crosshair" in str(e.get("command", "")))
         ]
-        entries.append(
-            {
-                "command": cmd,
-                "timeout": 5,
-            }
-        )
+        entry: dict[str, Any] = {"command": cmd, "timeout": 5}
+        if short in HOOK_MATCHERS:
+            entry["matcher"] = HOOK_MATCHERS[short]
+        entries.append(entry)
         hooks[cursor_name] = entries
 
     out["hooks"] = hooks
@@ -241,6 +289,7 @@ def _merge_hooks(
             "python": python_exe,
             "module_root": str(module_root),
             "version": __version__,
+            "rtk_enabled": include_rtk,
         },
     )
     return out
@@ -375,6 +424,13 @@ def _print_report(report: dict[str, Any]) -> None:
     print(f"    calls:    {report['tools']['calls']:>6}")
     print(f"    failures: {report['tools']['failures']:>6}")
     print()
+    rtk = report.get("rtk", {}) or {}
+    print("  rtk rewrites:")
+    print(f"    rewrites:   {rtk.get('rewrites', 0):>6}")
+    print(f"    passthrough:{rtk.get('passthrough', 0):>6}")
+    print(f"    filter runs:{rtk.get('runs', 0):>6}")
+    print(f"    saved tokens (est): {rtk.get('saved_tokens', 0):>9,}  ({rtk.get('savings_pct', 0):.1f}%)")
+    print()
     print("  Tokens observed (estimate):")
     print(f"    prompts + responses + tool outputs ≈ {report['tokens']['estimated']:>10,}")
     print("=" * 60)
@@ -411,6 +467,90 @@ def _cmd_config(args: argparse.Namespace) -> int:
             encoding="utf-8",
         )
         print(f"[crosshair] wrote starter user config to {user_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# rtk — run filters, show list, show savings
+# ---------------------------------------------------------------------------
+
+
+def _cmd_rtk(args: argparse.Namespace, config: Config) -> int:
+    raw_argv = list(getattr(args, "rtk_argv", []) or [])
+    if not raw_argv:
+        print(
+            "usage: crosshair rtk <cmd> [args...] | list | gain | rewrite <cmd...>",
+            file=sys.stderr,
+        )
+        return 2
+
+    first = raw_argv[0]
+    if first == "list":
+        return _rtk_list()
+    if first == "gain":
+        return _rtk_gain()
+    if first == "rewrite":
+        return _rtk_rewrite(raw_argv[1:])
+
+    from crosshair.rtk.filters.base import FilterContext
+    from crosshair.rtk.runner import execute_and_stream
+
+    ctx = FilterContext(max_lines=config.rtk.get("max_lines_default"))
+    return execute_and_stream(raw_argv, ctx)
+
+
+def _rtk_list() -> int:
+    from crosshair.rtk.registry import list_filters
+
+    by_cat: dict[str, list[dict[str, Any]]] = {}
+    for item in list_filters():
+        by_cat.setdefault(str(item["category"]), []).append(item)
+    print(f"{'Command':<24} {'Rewrite target':<20} {'Category':<10} {'Est. savings':>12}")
+    for category in sorted(by_cat):
+        for item in by_cat[category]:
+            prefix_display = ", ".join(item["prefixes"])
+            rewrite_to = f"crosshair rtk {item['rewrite_to']}"
+            print(
+                f"{prefix_display:<24} {rewrite_to:<20} {item['category']:<10} "
+                f"{item['est_savings_pct']:>10.0f}%"
+            )
+    return 0
+
+
+def _rtk_gain() -> int:
+    from crosshair.rtk.tracking import iter_events, summarise
+
+    summary = summarise(iter_events())
+    totals = summary["totals"]
+    print("=" * 60)
+    print("  CROSSHAIR RTK — local savings")
+    print("=" * 60)
+    print(f"  runs            : {totals['runs']}")
+    print(f"  passthrough     : {totals['passthrough_runs']}")
+    print(f"  original tokens : {totals['original_tokens']:>10,}")
+    print(f"  filtered tokens : {totals['filtered_tokens']:>10,}")
+    print(f"  saved tokens    : {totals['saved_tokens']:>10,}  ({totals['savings_pct']:.1f}%)")
+    print("-" * 60)
+    for row in summary["by_filter"]:
+        print(
+            f"  {row['filter']:<18} {row['runs']:>5} runs  "
+            f"{row['saved_tokens']:>9,} tok saved  {row['savings_pct']:>5.1f}%"
+        )
+    return 0
+
+
+def _rtk_rewrite(command_tokens: list[str]) -> int:
+    from crosshair.rtk.rewrite import rewrite_command
+
+    if not command_tokens:
+        print("usage: crosshair rtk rewrite <command...>", file=sys.stderr)
+        return 2
+    cmd = " ".join(command_tokens)
+    rewritten = rewrite_command(cmd)
+    if rewritten is None:
+        print(f"(no rewrite) {cmd}")
+    else:
+        print(rewritten)
     return 0
 
 

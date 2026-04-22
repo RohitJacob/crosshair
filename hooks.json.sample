@@ -20,6 +20,9 @@
     "preCompact": [
       { "command": "python3 -m crosshair hook pre-compact", "timeout": 3 }
     ],
+    "preToolUse": [
+      { "command": "python3 -m crosshair hook pre-tool-use", "timeout": 3, "matcher": "Shell" }
+    ],
     "stop": [
       { "command": "python3 -m crosshair hook stop", "timeout": 3 }
     ]

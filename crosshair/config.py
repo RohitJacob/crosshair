@@ -52,6 +52,10 @@ class Config:
     def session_start(self) -> dict[str, Any]:
         return self.data.get("session_start", {})
 
+    @property
+    def rtk(self) -> dict[str, Any]:
+        return self.data.get("rtk", {})
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:

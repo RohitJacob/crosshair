@@ -11,6 +11,7 @@ from crosshair.hooks import (
     before_submit,
     post_tool,
     pre_compact,
+    pre_tool_use,
     session_start,
     stop,
 )
@@ -22,6 +23,7 @@ HANDLERS = {
     "post-tool": post_tool.run,
     "after-file-edit": after_file_edit.run,
     "pre-compact": pre_compact.run,
+    "pre-tool-use": pre_tool_use.run,
     "stop": stop.run,
 }
 
