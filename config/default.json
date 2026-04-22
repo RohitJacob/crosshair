@@ -1,0 +1,199 @@
+{
+  "$schema_note": "crosshair default config. User overrides live at ~/.cursor/crosshair/config.json and are deep-merged over this file.",
+  "router": {
+    "enabled": true,
+    "override_prefix": "!",
+    "models": {
+      "haiku": {
+        "aliases": ["haiku", "claude-haiku", "claude-3-5-haiku", "claude-4-haiku"],
+        "cost_tier": "low"
+      },
+      "sonnet": {
+        "aliases": ["sonnet", "claude-sonnet", "claude-3-5-sonnet", "claude-4-sonnet", "claude-4.5-sonnet", "claude-4.6-sonnet"],
+        "cost_tier": "medium"
+      },
+      "opus": {
+        "aliases": ["opus", "claude-opus", "claude-3-opus", "claude-4-opus"],
+        "cost_tier": "high"
+      },
+      "gpt-5": {
+        "aliases": ["gpt-5", "gpt5", "gpt-5-high", "gpt-5-low"],
+        "cost_tier": "medium"
+      },
+      "composer": {
+        "aliases": ["composer", "composer-2", "composer-2-fast"],
+        "cost_tier": "low"
+      }
+    },
+    "rules": [
+      {
+        "name": "haiku-git-ops",
+        "target": "haiku",
+        "max_words": 40,
+        "pattern_any": [
+          "\\bgit\\s+(commit|push|pull|status|log|diff|add|stash|branch|checkout)\\b",
+          "\\bcommit\\s+(this|all|changes)\\b",
+          "\\bpush\\s+(to|the|remote|origin)\\b",
+          "\\brename\\b",
+          "\\bre-?order\\b",
+          "\\bmove\\s+file\\b",
+          "\\bdelete\\s+file\\b",
+          "\\badd\\s+(import|route|link)\\b",
+          "\\bformat\\s+(this|code|file)\\b",
+          "\\blint\\b",
+          "\\bprettier\\b",
+          "\\beslint\\b"
+        ],
+        "pattern_none": [
+          "\\bbug\\b",
+          "\\bissue\\b",
+          "\\berror\\b",
+          "\\bbroken\\b",
+          "\\bfails?\\b",
+          "\\bfailing\\b"
+        ]
+      },
+      {
+        "name": "opus-architecture",
+        "target": "opus",
+        "pattern_any": [
+          "\\barchitect(ure|ural)?\\b",
+          "\\btrade[- ]?off\\b",
+          "\\bstrategy\\b",
+          "\\bcompare approaches\\b",
+          "\\bdeep dive\\b",
+          "\\bredesign\\b",
+          "\\bacross the codebase\\b",
+          "\\bmulti-system\\b",
+          "\\brethink\\b",
+          "\\bevaluate\\b"
+        ]
+      },
+      {
+        "name": "opus-long-analytical",
+        "target": "opus",
+        "min_words": 200
+      },
+      {
+        "name": "opus-questions",
+        "target": "opus",
+        "min_words": 100,
+        "pattern_any": ["\\?"]
+      },
+      {
+        "name": "sonnet-implementation",
+        "target": "sonnet",
+        "pattern_any": [
+          "\\b(build|implement|create|fix|debug)\\b",
+          "\\badd\\s+feature\\b",
+          "\\bcomponent\\b",
+          "\\bservice\\b",
+          "\\bpage\\b",
+          "\\brefactor\\b",
+          "\\btest\\b",
+          "\\bdeploy\\b",
+          "\\bwrite\\b"
+        ]
+      }
+    ],
+    "block_downgrade": {
+      "from": ["opus"],
+      "to": ["haiku", "sonnet"],
+      "template": "This looks like {{target_category}}. {{target}} handles this fine at a fraction of the cost of {{from_model}}. Switch and resend. Prefix with ! to override."
+    },
+    "block_upgrade": {
+      "from": ["haiku"],
+      "to": ["sonnet", "opus"],
+      "template": "This likely needs {{target}}-class reasoning. Switch up from {{from_model}} for better results. Prefix with ! to override."
+    }
+  },
+  "safepoint": {
+    "enabled": true,
+    "token_thresholds": {
+      "soft": 100000,
+      "mid": 150000,
+      "high": 180000
+    },
+    "action_thresholds": {
+      "note": 50,
+      "suggest": 70,
+      "strong": 90
+    },
+    "weights": {
+      "token_bloat_soft": 20,
+      "token_bloat_mid": 40,
+      "token_bloat_high": 90,
+      "topic_shift": 30,
+      "completion_marker": 25,
+      "tool_volume": 15,
+      "file_sprawl": 15,
+      "error_loop": 20,
+      "time_gap_minutes": 10,
+      "session_length": 15
+    },
+    "tool_volume_threshold": 50,
+    "file_sprawl_threshold": 20,
+    "error_loop_threshold": 3,
+    "time_gap_minutes_threshold": 30,
+    "session_length_threshold": 50,
+    "topic_history_size": 3,
+    "topic_shift_jaccard_max": 0.15,
+    "completion_markers": [
+      "thanks",
+      "thank you",
+      "lgtm",
+      "looks good",
+      "looks great",
+      "perfect",
+      "ship it",
+      "ready to ship",
+      "we're done",
+      "we are done",
+      "let's move on",
+      "lets move on",
+      "next task",
+      "next up",
+      "moving on",
+      "new topic",
+      "different topic",
+      "now let's",
+      "now lets",
+      "ok now",
+      "great work",
+      "nice work",
+      "all set",
+      "that works"
+    ],
+    "stopwords": [
+      "the", "a", "an", "of", "to", "and", "or", "in", "on", "at", "for",
+      "is", "was", "be", "it", "this", "that", "with", "as", "by", "from",
+      "i", "you", "we", "they", "he", "she", "my", "your", "our", "their",
+      "me", "us", "them", "if", "so", "but", "not", "no", "yes", "do",
+      "did", "does", "has", "have", "had", "will", "would", "can", "could",
+      "should", "let", "lets", "please", "now", "just", "also", "like",
+      "ok", "okay", "then", "than", "what", "when", "where", "how", "why",
+      "which", "who", "make", "made", "get", "got", "its", "am", "are",
+      "been", "being", "here", "there"
+    ],
+    "handoff": {
+      "enabled": true,
+      "include_max_files": 8,
+      "include_max_errors": 3,
+      "include_progress_tools": true
+    }
+  },
+  "logging": {
+    "path": "~/.cursor/crosshair/logs/events.ndjson",
+    "truncate_prompts_to": 80,
+    "debug_path": "~/.cursor/crosshair/logs/debug.ndjson",
+    "debug_enabled": false
+  },
+  "state": {
+    "dir": "~/.cursor/crosshair/state",
+    "retain_days": 14
+  },
+  "session_start": {
+    "enabled": true,
+    "guidance_text": "Model guidance: Haiku handles git ops, renames, formatting, and simple edits. Sonnet is the default for feature work, debugging, and refactors. Opus is for architecture decisions, deep analysis, and multi-system reasoning. If the current task is simpler than the model being used, briefly mention it."
+  }
+}
