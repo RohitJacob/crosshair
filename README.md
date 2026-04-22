@@ -105,8 +105,14 @@ python3 -m crosshair install --python "$(which python3)"
 
 ```bash
 crosshair status         # empty until Cursor fires a hook
-crosshair rtk list       # prints every supported shell command
+rtk list                 # prints every supported shell command
 ```
+
+Both `crosshair` and `rtk` are installed as console scripts by `pip install -e .`.
+The `rtk` command is the short form the preToolUse rewriter emits; it's equivalent
+to `crosshair rtk <args>` but saves tokens every time the agent runs a shell
+command. Make sure the venv's `bin/` is on Cursor's PATH (or symlink
+`~/.cursor/crosshair/venv/bin/rtk` into `~/.local/bin`).
 
 Then in Cursor, try running `git status` from the agent — you should get the
 compressed 5-line version.
@@ -244,12 +250,12 @@ pass `--no-rtk` to skip it.
     - trailing redirects (`> file`, `2>&1`)
     - heredocs and arithmetic (`<<`, `$((`) — **skipped** to avoid breaking
       quoted scripts
-    - commands already rewritten — **skipped** to keep the rewrite idempotent
-3. Each matching segment becomes `crosshair rtk <original>`. Cursor runs
-   _that_.
-4. `crosshair rtk` dispatches to the matching Python filter, runs the real
-   command, and returns compressed output. Exit codes and stderr are
-   preserved.
+    - commands already rewritten (either `rtk ...` or the legacy
+      `crosshair rtk ...`) — **skipped** to keep the rewrite idempotent
+3. Each matching segment becomes `rtk <original>`. Cursor runs _that_.
+4. `rtk` (a console script alias for `crosshair rtk`) dispatches to the
+   matching Python filter, runs the real command, and returns compressed
+   output. Exit codes and stderr are preserved.
 5. If a filter crashes, we **fail open** — the original command still runs.
 
 **Supported commands:**
@@ -284,7 +290,7 @@ Untracked files:
         ...
 ```
 
-After (via `crosshair rtk git status`, 14 lines of meaning):
+After (via `rtk git status`, 14 lines of meaning):
 
 ```text
 branch: rj/rohitjacob/rtk...origin/rj/rohitjacob/rtk
@@ -302,11 +308,15 @@ Same signal, ~60 % fewer tokens.
 **Inspect and tune:**
 
 ```bash
-crosshair rtk list                       # every supported command + estimated savings
-crosshair rtk rewrite "git status && pytest -q"   # dry-run the rewriter
-crosshair rtk gain                       # local savings summary (last 7 days)
-crosshair rtk git status                 # invoke a filter manually
+rtk list                                 # every supported command + estimated savings
+rtk rewrite "git status && pytest -q"    # dry-run the rewriter
+rtk gain                                 # local savings summary (last 7 days)
+rtk git status                           # invoke a filter manually
 ```
+
+The same subcommands also work as `crosshair rtk ...` — same dispatch, longer
+name. The hook uses the short form so every rewritten shell command costs
+fewer tokens in the agent context.
 
 **Exclude specific binaries** if a filter is interfering:
 
@@ -347,7 +357,7 @@ plain NDJSON — use `jq`, or:
 ```bash
 crosshair analyze --days 7          # router decisions, safepoint actions, token estimates
 crosshair analyze --json            # machine-readable
-crosshair rtk gain                  # rtk-specific: saved tokens, top savings, passthroughs
+rtk gain                            # rtk-specific: saved tokens, top savings, passthroughs
 ```
 
 ---
@@ -365,11 +375,11 @@ crosshair config --init          # write a user config stub at ~/.cursor/crossha
 crosshair install [--no-rtk]     # re-run hook install (used by ./install.sh)
 crosshair uninstall              # remove crosshair entries from ~/.cursor/hooks.json
 
-# rtk subcommands
-crosshair rtk list               # every supported command + estimated savings
-crosshair rtk gain               # local token-savings summary
-crosshair rtk rewrite "<cmd>"    # dry-run: show how a command would be rewritten
-crosshair rtk <cmd> [args…]      # run a command through its filter (passthrough if no rule)
+# rtk subcommands (also callable as `crosshair rtk ...`)
+rtk list                         # every supported command + estimated savings
+rtk gain                         # local token-savings summary
+rtk rewrite "<cmd>"              # dry-run: show how a command would be rewritten
+rtk <cmd> [args…]                # run a command through its filter (passthrough if no rule)
 ```
 
 Also available: `python3 -m crosshair <subcommand>` for environments without

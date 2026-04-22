@@ -27,7 +27,7 @@ def _run(tmp_config: Config, logger, state_store, *, cmd: str, tool: str = "Shel
 def test_hook_rewrites_known_command(tmp_config, logger, state_store):
     out = _run(tmp_config, logger, state_store, cmd="git status")
     assert out["permission"] == "allow"
-    assert out["updated_input"]["command"] == "crosshair rtk git status"
+    assert out["updated_input"]["command"] == "rtk git status"
 
 
 def test_hook_passthrough_for_unknown(tmp_config, logger, state_store):
@@ -35,6 +35,8 @@ def test_hook_passthrough_for_unknown(tmp_config, logger, state_store):
 
 
 def test_hook_passthrough_for_already_rewritten(tmp_config, logger, state_store):
+    # Idempotent on both the new short form and the legacy long form so in-flight
+    # commands queued before this change don't get double-wrapped.
     assert _run(tmp_config, logger, state_store, cmd="rtk git status") == {}
     assert _run(tmp_config, logger, state_store, cmd="crosshair rtk git status") == {}
 
@@ -69,5 +71,5 @@ def test_hook_rewrites_compound(tmp_config, logger, state_store):
     assert out["permission"] == "allow"
     assert (
         out["updated_input"]["command"]
-        == "crosshair rtk git add . && crosshair rtk git commit -m 'x'"
+        == "rtk git add . && rtk git commit -m 'x'"
     )

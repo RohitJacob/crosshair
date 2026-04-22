@@ -47,12 +47,17 @@ VENV_PY="${VENV_DIR}/bin/python"
 echo "[crosshair] installing Cursor hooks..."
 "${VENV_PY}" -m crosshair install --python "${VENV_PY}" "$@"
 
+VENV_BIN="${VENV_DIR}/bin"
+
 echo
 echo "[crosshair] done."
 echo "  status:   ${VENV_PY} -m crosshair status"
 echo "  analyze:  ${VENV_PY} -m crosshair analyze"
 echo "  handoff:  ${VENV_PY} -m crosshair handoff"
-echo "  rtk list: ${VENV_PY} -m crosshair rtk list"
-echo "  rtk gain: ${VENV_PY} -m crosshair rtk gain"
+echo "  rtk list: ${VENV_BIN}/rtk list"
+echo "  rtk gain: ${VENV_BIN}/rtk gain"
+echo
+echo "  The preToolUse hook rewrites shell commands to 'rtk <cmd>', so make sure"
+echo "  ${VENV_BIN} is on Cursor's PATH (or symlink ${VENV_BIN}/rtk into ~/.local/bin)."
 echo
 echo "  Restart Cursor (or open a new composer) for the hooks to take effect."

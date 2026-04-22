@@ -97,8 +97,9 @@ def _strip_prefix(argv: list[str], prefixes: tuple[str, ...]) -> list[str]:
 def execute_and_stream(argv: Sequence[str], ctx: FilterContext | None = None) -> int:
     """Run a filter and stream its output to stdout/stderr. Returns exit code.
 
-    This is the form the ``crosshair rtk <cmd>`` CLI uses — it preserves the
-    subprocess's exit code and routes stderr naturally.
+    This is the form the ``rtk <cmd>`` CLI uses (and its ``crosshair rtk``
+    alias) — it preserves the subprocess's exit code and routes stderr
+    naturally.
     """
     result = run_filter(argv, ctx)
     if result.stdout:

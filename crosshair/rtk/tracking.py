@@ -1,8 +1,8 @@
 """Lightweight local tracking for filter savings.
 
 Each filter run appends one NDJSON line to
-``~/.cursor/crosshair/logs/rtk.ndjson``. ``crosshair rtk gain`` and
-``crosshair analyze`` read this file.
+``~/.cursor/crosshair/logs/rtk.ndjson``. ``rtk gain`` and ``crosshair analyze``
+read this file.
 
 Kept independent from ``crosshair.logs.EventLogger`` so rtk continues to work
 even if the broader logger config is broken.
