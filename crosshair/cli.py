@@ -17,7 +17,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from crosshair import __version__
+try:
+    from crosshair import __version__
+except ImportError:
+    # Defensive fallback: if the ``crosshair`` name resolves as a namespace
+    # package (e.g. because Python prepended a cwd like ``~/.cursor`` that
+    # contains our install dir onto sys.path), ``__version__`` won't be
+    # available. The hook install command now sets ``PYTHONSAFEPATH=1`` to
+    # prevent that, but we still want the hook to fail open if an older
+    # install missed that flag.
+    __version__ = "0.0.0+shadowed"
 from crosshair.analytics import render_report
 from crosshair.config import Config, default_config_path, load_config, user_config_path
 from crosshair.hooks import HANDLERS, get_handler
@@ -201,7 +210,14 @@ def _read_input(input_file: str | None) -> str:
 def _cmd_install(args: argparse.Namespace) -> int:
     module_path = Path(__file__).resolve().parent.parent
     python_exe = args.python
-    hook_cmd = f'{python_exe} -m crosshair hook {{name}}'
+    # ``PYTHONSAFEPATH=1`` prevents Python from auto-prepending the cwd to
+    # ``sys.path``. Cursor runs hooks with ``cwd=~/.cursor``, and the default
+    # install dir is ``~/.cursor/crosshair`` — without this flag, Python would
+    # resolve ``import crosshair`` as a namespace package pointing at the
+    # install dir, shadowing the real editable install and crashing every
+    # hook invocation with ``ImportError: cannot import name '__version__'
+    # from 'crosshair' (unknown location)``.
+    hook_cmd = f'/usr/bin/env PYTHONSAFEPATH=1 {python_exe} -m crosshair hook {{name}}'
 
     hooks_file = expand(args.hooks_file)
     existing: dict[str, Any] = {}
