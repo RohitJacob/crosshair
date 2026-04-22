@@ -1,0 +1,30 @@
+{
+  "$schema_note": "Reference configuration produced by `crosshair install`. Copy the `hooks` block into ~/.cursor/hooks.json and keep any existing entries you have from other tools.",
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "python3 -m crosshair hook session-start", "timeout": 5 }
+    ],
+    "beforeSubmitPrompt": [
+      { "command": "python3 -m crosshair hook before-submit", "timeout": 5 }
+    ],
+    "afterAgentResponse": [
+      { "command": "python3 -m crosshair hook after-response", "timeout": 3 }
+    ],
+    "postToolUse": [
+      { "command": "python3 -m crosshair hook post-tool", "timeout": 3 }
+    ],
+    "afterFileEdit": [
+      { "command": "python3 -m crosshair hook after-file-edit", "timeout": 3 }
+    ],
+    "preCompact": [
+      { "command": "python3 -m crosshair hook pre-compact", "timeout": 3 }
+    ],
+    "preToolUse": [
+      { "command": "python3 -m crosshair hook pre-tool-use", "timeout": 3, "matcher": "Shell" }
+    ],
+    "stop": [
+      { "command": "python3 -m crosshair hook stop", "timeout": 3 }
+    ]
+  }
+}
