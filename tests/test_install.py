@@ -34,14 +34,20 @@ def _run_install(tmp_path: Path, *extra_args: str) -> dict:
     return json.loads(hooks_file.read_text())
 
 
-def test_install_emits_pythonsafepath_flag(tmp_path: Path) -> None:
+def test_install_emits_sys_path_isolation_flags(tmp_path: Path) -> None:
     data = _run_install(tmp_path)
     for event, entries in data["hooks"].items():
         for entry in entries:
             cmd = entry["command"]
             assert "PYTHONSAFEPATH=1" in cmd, (
                 f"{event!r} hook command is missing PYTHONSAFEPATH=1 — this will "
-                f"re-introduce the namespace-package shadow bug. cmd={cmd!r}"
+                f"re-introduce the cwd-prepend namespace-package shadow bug. "
+                f"cmd={cmd!r}"
+            )
+            assert "-u PYTHONPATH" in cmd, (
+                f"{event!r} hook command is missing ``env -u PYTHONPATH`` — "
+                f"users with ``PYTHONPATH=.:…`` in their shell will see the "
+                f"install dir shadow the real package. cmd={cmd!r}"
             )
             assert "/fake/venv/bin/python" in cmd
             assert "-m crosshair hook" in cmd
