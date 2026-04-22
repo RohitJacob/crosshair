@@ -2,7 +2,8 @@
 
 Matcher is ``Shell``. On each shell tool call, rewrite the command string
 through ``crosshair.rtk.rewrite_command`` so supported commands get routed
-through our Python filters (``crosshair rtk <cmd>``) for big token savings.
+through our Python filters (``rtk <cmd>``) for big token savings. The ``rtk``
+binary is a thin alias for ``crosshair rtk`` installed by the same package.
 
 Output contract (Cursor):
 

@@ -6,7 +6,7 @@ changed). It has no side effects so it can be unit-tested in isolation.
 
 Supported shapes:
 
-- Single commands: ``git status`` → ``crosshair rtk git status``
+- Single commands: ``git status`` → ``rtk git status``
 - Compound with ``&&``/``||``/``;``: each segment rewritten independently
 - Pipes: only the producer (first segment) is rewritten — filters consume
   full stdout
@@ -26,9 +26,15 @@ from typing import Iterable, NamedTuple
 
 from crosshair.rtk.registry import RtkRule, find_rule
 
-# The CLI invocation we rewrite commands to. Using the module form means we
-# don't depend on ``crosshair`` being on PATH at hook time.
-REWRITE_CMD = "crosshair rtk"
+# The CLI invocation we rewrite commands to. We prefer the short form so the
+# rewritten command takes up as few tokens as possible in the agent context.
+# The ``rtk`` console script is installed alongside ``crosshair`` and dispatches
+# to the same handler as ``crosshair rtk``.
+REWRITE_CMD = "rtk"
+
+# Legacy prefix kept only for idempotency: commands already rewritten with the
+# long form should not get re-wrapped.
+_LEGACY_REWRITE_CMD = "crosshair rtk"
 
 
 # Env-prefix grammar used before a command: ``sudo ``, ``env `` or ``VAR=val ``.
@@ -90,7 +96,12 @@ def _has_compound(cmd: str) -> bool:
 
 
 def _has_rewrite_prefix(cmd: str) -> bool:
-    return cmd == "rtk" or cmd.startswith("rtk ") or cmd.startswith(f"{REWRITE_CMD} ")
+    return (
+        cmd == "rtk"
+        or cmd.startswith("rtk ")
+        or cmd == _LEGACY_REWRITE_CMD
+        or cmd.startswith(f"{_LEGACY_REWRITE_CMD} ")
+    )
 
 
 def _tokenize_compound(cmd: str) -> list[Token]:

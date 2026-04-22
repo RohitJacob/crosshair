@@ -197,7 +197,7 @@
     "guidance_text": "Model guidance: Haiku handles git ops, renames, formatting, and simple edits. Sonnet is the default for feature work, debugging, and refactors. Opus is for architecture decisions, deep analysis, and multi-system reasoning. If the current task is simpler than the model being used, briefly mention it."
   },
   "rtk": {
-    "$note": "Token-savings filters for common shell commands. preToolUse hook rewrites Shell commands through `crosshair rtk ...`.",
+    "$note": "Token-savings filters for common shell commands. preToolUse hook rewrites Shell commands through `rtk ...` (short form of `crosshair rtk ...`).",
     "enabled": true,
     "exclude_commands": [],
     "log_path": "~/.cursor/crosshair/logs/rtk.ndjson",

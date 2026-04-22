@@ -1,10 +1,11 @@
 """The central rtk registry.
 
 A single list of ``RtkRule`` entries drives both the shell rewriter and the
-``crosshair rtk <cmd>`` runner. Each rule is self-contained:
+``rtk <cmd>`` runner (also reachable as ``crosshair rtk <cmd>``). Each rule is
+self-contained:
 
 - ``pattern``      regex matched against the leading command line (post env-strip)
-- ``rewrite_to``   string prefix used by the hook when rewriting ("crosshair rtk git")
+- ``rewrite_to``   short label shown in ``rtk list`` (e.g. "git status")
 - ``filter``       callable to run directly
 - ``category``     category label for analytics
 - ``est_savings``  rough savings percent — used for discover/gain displays
@@ -315,7 +316,7 @@ def find_rule(cmd: str, excluded: Iterable[str] = ()) -> RtkRule | None:
 
 
 def list_filters() -> list[dict[str, object]]:
-    """Return a JSON-friendly list of rules for ``crosshair rtk list``."""
+    """Return a JSON-friendly list of rules for ``rtk list``."""
     return [
         {
             "name": r.name,
@@ -331,8 +332,8 @@ def list_filters() -> list[dict[str, object]]:
 def dispatch(name: str) -> FilterFn:
     """Resolve a filter by name (``git-status``, ``ls`` …) for direct execution.
 
-    Unknown names fall back to ``passthrough`` so ``crosshair rtk <cmd>`` never
-    errors out just because we lack a filter.
+    Unknown names fall back to ``passthrough`` so ``rtk <cmd>`` never errors
+    out just because we lack a filter.
     """
     rule = _RULES_BY_NAME.get(name)
     if rule is None:

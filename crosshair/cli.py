@@ -95,15 +95,19 @@ def main(argv: list[str] | None = None) -> int:
 
     # rtk — we dispatch manually because argparse can't mix subparsers with
     # REMAINDER (we need to accept `crosshair rtk git status -s` verbatim).
+    # The same dispatcher is also exposed as the standalone ``rtk`` console
+    # script, which is the shorter form the preToolUse rewriter emits.
     rtk = sub.add_parser(
         "rtk",
-        help="Token-savings filters for common shell commands",
+        help="Token-savings filters for common shell commands (also: `rtk ...`)",
         description=(
             "Run a shell command through an rtk filter, or inspect state.\n"
-            "  crosshair rtk list           — supported commands\n"
-            "  crosshair rtk gain           — local savings summary\n"
-            "  crosshair rtk rewrite <cmd>  — show what the rewriter would do\n"
-            "  crosshair rtk <cmd> [args]   — run a command through its filter"
+            "  rtk list           — supported commands\n"
+            "  rtk gain           — local savings summary\n"
+            "  rtk rewrite <cmd>  — show what the rewriter would do\n"
+            "  rtk <cmd> [args]   — run a command through its filter\n"
+            "\n"
+            "These all also work as `crosshair rtk ...`."
         ),
     )
     rtk.add_argument("rtk_argv", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
@@ -477,9 +481,25 @@ def _cmd_config(args: argparse.Namespace) -> int:
 
 def _cmd_rtk(args: argparse.Namespace, config: Config) -> int:
     raw_argv = list(getattr(args, "rtk_argv", []) or [])
+    return _dispatch_rtk(raw_argv, config, prog="crosshair rtk")
+
+
+def rtk_main(argv: list[str] | None = None) -> int:
+    """Entry point for the standalone ``rtk`` console script.
+
+    Behaves exactly like ``crosshair rtk <argv>`` but is the shorter form the
+    ``preToolUse`` rewriter produces so every rewritten shell command costs
+    fewer tokens in the agent context.
+    """
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    config = load_config()
+    return _dispatch_rtk(raw_argv, config, prog="rtk")
+
+
+def _dispatch_rtk(raw_argv: list[str], config: Config, *, prog: str) -> int:
     if not raw_argv:
         print(
-            "usage: crosshair rtk <cmd> [args...] | list | gain | rewrite <cmd...>",
+            f"usage: {prog} <cmd> [args...] | list | gain | rewrite <cmd...>",
             file=sys.stderr,
         )
         return 2
@@ -490,7 +510,7 @@ def _cmd_rtk(args: argparse.Namespace, config: Config) -> int:
     if first == "gain":
         return _rtk_gain()
     if first == "rewrite":
-        return _rtk_rewrite(raw_argv[1:])
+        return _rtk_rewrite(raw_argv[1:], prog=prog)
 
     from crosshair.rtk.filters.base import FilterContext
     from crosshair.rtk.runner import execute_and_stream
@@ -501,6 +521,7 @@ def _cmd_rtk(args: argparse.Namespace, config: Config) -> int:
 
 def _rtk_list() -> int:
     from crosshair.rtk.registry import list_filters
+    from crosshair.rtk.rewrite import REWRITE_CMD
 
     by_cat: dict[str, list[dict[str, Any]]] = {}
     for item in list_filters():
@@ -509,7 +530,7 @@ def _rtk_list() -> int:
     for category in sorted(by_cat):
         for item in by_cat[category]:
             prefix_display = ", ".join(item["prefixes"])
-            rewrite_to = f"crosshair rtk {item['rewrite_to']}"
+            rewrite_to = f"{REWRITE_CMD} {item['rewrite_to']}"
             print(
                 f"{prefix_display:<24} {rewrite_to:<20} {item['category']:<10} "
                 f"{item['est_savings_pct']:>10.0f}%"
@@ -539,11 +560,11 @@ def _rtk_gain() -> int:
     return 0
 
 
-def _rtk_rewrite(command_tokens: list[str]) -> int:
+def _rtk_rewrite(command_tokens: list[str], *, prog: str = "rtk") -> int:
     from crosshair.rtk.rewrite import rewrite_command
 
     if not command_tokens:
-        print("usage: crosshair rtk rewrite <command...>", file=sys.stderr)
+        print(f"usage: {prog} rewrite <command...>", file=sys.stderr)
         return 2
     cmd = " ".join(command_tokens)
     rewritten = rewrite_command(cmd)
