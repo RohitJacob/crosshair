@@ -223,6 +223,57 @@ def read_filter(argv: list[str], ctx: FilterContext) -> FilterResult:
 # --------------------------------------------------------------------------- #
 
 
+_GREP_RAW_OUTPUT_FLAGS = {
+    "-l",
+    "--files-with-matches",
+    "-L",
+    "--files-without-match",
+    "-c",
+    "--count",
+    "--count-matches",
+    "-q",
+    "--quiet",
+    "--silent",
+    "--json",
+    "--vimgrep",
+}
+
+_GREP_SHORT_FLAGS_WITH_ATTACHED_VALUE = {
+    "A",
+    "B",
+    "C",
+    "D",
+    "d",
+    "e",
+    "f",
+    "m",
+}
+
+
+def _grep_uses_raw_output(argv: list[str]) -> bool:
+    """Return true when grep/rg flags intentionally change stdout shape."""
+    for arg in argv:
+        if arg == "--":
+            return False
+        if arg in _GREP_RAW_OUTPUT_FLAGS:
+            return True
+        if arg.startswith("--"):
+            if arg.split("=", 1)[0] in _GREP_RAW_OUTPUT_FLAGS:
+                return True
+            continue
+        if not arg.startswith("-") or arg == "-":
+            continue
+
+        # grep allows short option clusters (`-il`), but some options consume
+        # the rest of the same token (`-ePATTERN`, `-m1`).
+        for idx, flag in enumerate(arg[1:]):
+            if flag in "lLcq":
+                return True
+            if flag in _GREP_SHORT_FLAGS_WITH_ATTACHED_VALUE and idx < len(arg[1:]) - 1:
+                break
+    return False
+
+
 def grep_filter(argv: list[str], ctx: FilterContext) -> FilterResult:
     """Run the real grep/rg and group results by file.
 
@@ -237,10 +288,11 @@ def grep_filter(argv: list[str], ctx: FilterContext) -> FilterResult:
     """
     base = ctx.base_cmd or "grep"
     exe = which(base if base in ("rg", "grep") else "grep") or "grep"
-    # Force line numbers and filenames for a stable format. ripgrep already
-    # defaults to line numbers + filenames; grep does not.
+    raw_output = _grep_uses_raw_output(argv)
+    # Force line numbers and filenames for a stable format unless the user
+    # requested an output mode like `-l`, `-c`, or `-q`.
     extra: list[str] = []
-    if base == "grep":
+    if base == "grep" and not raw_output:
         if not any(a in ("-n", "--line-number") for a in argv):
             extra.append("-n")
         if not any(a in ("-H", "--with-filename") for a in argv):
@@ -250,6 +302,16 @@ def grep_filter(argv: list[str], ctx: FilterContext) -> FilterResult:
     proc = run_subprocess(cmd, ctx)
     raw = proc.stdout
     if proc.returncode not in (0, 1):  # 1 = no matches for grep, not an error
+        return FilterResult(
+            stdout=raw,
+            stderr=proc.stderr,
+            exit_code=proc.returncode,
+            original_chars=len(raw),
+            filtered_chars=len(raw),
+            filter_name="grep",
+        )
+
+    if raw_output:
         return FilterResult(
             stdout=raw,
             stderr=proc.stderr,
@@ -276,6 +338,16 @@ def grep_filter(argv: list[str], ctx: FilterContext) -> FilterResult:
             continue
         path, lineno, content = parts
         by_file[path].append((lineno, content))
+
+    if raw and not by_file:
+        return FilterResult(
+            stdout=raw,
+            stderr=proc.stderr,
+            exit_code=proc.returncode,
+            original_chars=len(raw),
+            filtered_chars=len(raw),
+            filter_name="grep",
+        )
 
     out_parts: list[str] = []
     max_per_file = ctx.max_lines or 5
