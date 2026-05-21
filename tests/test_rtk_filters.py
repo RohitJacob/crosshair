@@ -210,6 +210,41 @@ def test_grep_filter_groups_by_file(monkeypatch, ctx: FilterContext) -> None:
     assert "12:" in res.stdout
 
 
+def test_grep_filter_preserves_files_with_matches_output(monkeypatch, ctx: FilterContext) -> None:
+    raw = "src/portal_agent.py\nsrc/portalAgent.ts\n"
+    captured_argv: list[list[str]] = []
+
+    def fake(argv, _ctx, check=False):
+        captured_argv.append(list(argv))
+        return _fake_proc(stdout=raw, code=0)
+
+    monkeypatch.setattr(files_filter, "run_subprocess", fake)
+    ctx.base_cmd = "grep"
+
+    res = files_filter.grep_filter(
+        ["-l", "portal.*agent|portalAgent", "-i", "--max-count=1", "."],
+        ctx,
+    )
+
+    assert res.stdout == raw
+    assert res.exit_code == 0
+    assert captured_argv
+    assert "-l" in captured_argv[0]
+    assert "--max-count=1" in captured_argv[0]
+    assert "-n" not in captured_argv[0]
+    assert "-H" not in captured_argv[0]
+
+
+def test_grep_filter_preserves_quiet_exit_code(monkeypatch, ctx: FilterContext) -> None:
+    _patch_subprocess(monkeypatch, files_filter, _fake_proc(stdout="", code=0))
+    ctx.base_cmd = "grep"
+
+    res = files_filter.grep_filter(["-q", "needle", "haystack.txt"], ctx)
+
+    assert res.stdout == ""
+    assert res.exit_code == 0
+
+
 def test_find_filter_summary(monkeypatch, ctx: FilterContext) -> None:
     raw = "\n".join(f"./src/file{i}.py" for i in range(50)) + "\n"
     _patch_subprocess(monkeypatch, files_filter, _fake_proc(stdout=raw, code=0))
