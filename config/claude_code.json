@@ -1,0 +1,10 @@
+{
+  "$schema_note": "Path overrides layered on top of default.json when crosshair runs as a Claude Code hook, so Claude Code state/logs never share a directory literally named for Cursor.",
+  "state": {
+    "dir": "~/.claude/crosshair/state"
+  },
+  "logging": {
+    "path": "~/.claude/crosshair/logs/events.ndjson",
+    "debug_path": "~/.claude/crosshair/logs/debug.ndjson"
+  }
+}

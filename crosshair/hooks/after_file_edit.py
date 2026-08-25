@@ -45,14 +45,17 @@ def run(
     return {}
 
 
+_PATH_KEYS = ("path", "file_path", "target_file", "file", "notebook_path")
+
+
 def _extract_path(data: dict[str, Any]) -> str:
     tool_input = data.get("tool_input") or {}
     if isinstance(tool_input, dict):
-        for key in ("path", "file_path", "target_file", "file"):
+        for key in _PATH_KEYS:
             val = tool_input.get(key)
             if isinstance(val, str) and val:
                 return val
-    for key in ("path", "file_path", "target_file", "file"):
+    for key in _PATH_KEYS:
         val = data.get(key)
         if isinstance(val, str) and val:
             return val

@@ -109,6 +109,23 @@ def load_config(user_path: Path | None = None) -> Config:
     return Config(data=merged, source=user_path if overrides else default_path)
 
 
+def load_config_for_host(host: str = "cursor", user_path: Path | None = None) -> Config:
+    """Like ``load_config``, but layers host-specific path overrides (e.g.
+    ``config/claude_code.json``) between the shared defaults and the user's
+    own config, so each host's state/logs live under its own directory while
+    router and safepoint rules stay shared.
+    """
+    default_path = _resolve_default_path()
+    defaults = _read_json(default_path)
+    if host != "cursor":
+        host_overrides_path = default_path.parent / f"{host.replace('-', '_')}.json"
+        defaults = deep_merge(defaults, _read_json(host_overrides_path))
+    user_path = user_path or expand(USER_CONFIG_PATH)
+    overrides = _read_json(user_path) if user_path.exists() else {}
+    merged = deep_merge(defaults, overrides)
+    return Config(data=merged, source=user_path if overrides else default_path)
+
+
 def user_config_path() -> Path:
     return expand(USER_CONFIG_PATH)
 

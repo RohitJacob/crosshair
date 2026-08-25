@@ -43,7 +43,7 @@ where = ["."]
 include = ["crosshair*"]
 
 [tool.setuptools.package-data]
-crosshair = ["../config/default.json"]
+crosshair = ["../config/default.json", "../config/claude_code.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

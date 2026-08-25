@@ -1,7 +1,8 @@
 # crosshair
 
-A lightweight, local control layer for [Cursor](https://cursor.com) that cuts
-token usage in three ways:
+A lightweight, local control layer for [Cursor](https://cursor.com) and
+[Claude Code](https://claude.com/claude-code) that cuts token usage in three
+ways:
 
 1. **Model router** — blocks the wrong-size model for the task and tells you
    to switch (Opus → Sonnet for a `git commit`; Haiku → Sonnet for "debug this
@@ -14,7 +15,7 @@ token usage in three ways:
    `pytest`, `tsc`, `grep`, `docker ps`, …) so Cursor sees a 5-line summary
    instead of 30 lines of porcelain.
 
-Python 3.9+, stdlib only, 114 unit tests, nothing sent over the network.
+Python 3.9+, stdlib only, 147 unit tests, nothing sent over the network.
 Inspired by [model-matchmaker](https://github.com/coyvalyss1/model-matchmaker)
 and [rtk](https://github.com/RohitJacob/rtk); rewritten from scratch as a
 single Python package.
@@ -25,6 +26,7 @@ single Python package.
 
 - [Quick start](#quick-start)
 - [Installation guide](#installation-guide)
+- [Claude Code support](#claude-code-support)
 - [Features](#features)
   - [1. Model router](#1-model-router)
   - [2. Safepoint detector](#2-safepoint-detector)
@@ -133,6 +135,59 @@ rm -rf ~/.cursor/crosshair   # optional: also wipe state and logs
 
 The `uninstall` command is surgical — only the `command` strings that contain
 `crosshair` are removed; any other hooks you have registered stay put.
+
+---
+
+## Claude Code support
+
+Same router, safepoint detector, and `rtk` filters — wired into
+[Claude Code's hook system](https://code.claude.com/docs/en/hooks) instead of
+Cursor's. Install alongside or instead of the Cursor integration; they share
+the venv and config but keep separate state/log directories
+(`~/.claude/crosshair/` vs `~/.cursor/crosshair/`).
+
+```bash
+./install.sh                                  # sets up the venv (same as Cursor)
+crosshair install --host claude-code --python "$(pwd)/../.venv/bin/python"
+```
+
+Or, once the venv exists:
+
+```bash
+$VENV/bin/python -m crosshair install --host claude-code --python $VENV/bin/python
+```
+
+This writes hook entries into `~/.claude/settings.json` (merging with
+whatever's already there, same backup-and-dedupe behaviour as the Cursor
+installer). `crosshair uninstall --host claude-code` removes them. Both
+commands take the same `--no-rtk` and `--dry-run` flags as the Cursor path,
+plus `--hooks-file` to target a project-level `.claude/settings.json` instead
+of the user-level one.
+
+**One real difference from Cursor:** Claude Code hooks aren't reliably told
+which model is active for the current turn, so the router can't always
+compare "current model" against "recommended model" the way it does in
+Cursor. By default it degrades gracefully — the classifier still runs, and a
+short, non-blocking advisory (e.g. "this looks like haiku git ops; haiku is
+usually the right model class for it") is injected as context instead of a
+hard block. If you export `ANTHROPIC_MODEL` in your shell (or set
+`router.claude_code_model_env` in your config to point at a different env
+var), you get the full Cursor-style block/nudge behaviour back — with the
+same caveat Claude Code's own docs note: it won't auto-update if you switch
+models mid-session with `/model`.
+
+Event mapping, for reference:
+
+| Cursor            | Claude Code                                             |
+| ------------------ | -------------------------------------------------------- |
+| `sessionStart`      | `SessionStart`                                            |
+| `beforeSubmitPrompt`| `UserPromptSubmit`                                        |
+| `preToolUse` (Shell)| `PreToolUse` (matcher `Bash`)                             |
+| `postToolUse`       | `PostToolUse` (matcher `""`, tally + failure tracking)    |
+| `afterFileEdit`     | `PostToolUse` (matcher `Edit\|Write\|MultiEdit\|NotebookEdit`) |
+| `afterAgentResponse` | folded into `Stop` — Claude Code has no separate event, and `Stop` already carries the final assistant message |
+| `preCompact`        | `PreCompact`                                              |
+| `stop`              | `Stop`                                                    |
 
 ---
 
@@ -372,8 +427,8 @@ crosshair analyze                # NDJSON log report (add --days 7 or --json)
 crosshair reset [<conv-id>]      # clear state for one or all conversations
 crosshair config                 # print active config paths
 crosshair config --init          # write a user config stub at ~/.cursor/crosshair/config.json
-crosshair install [--no-rtk]     # re-run hook install (used by ./install.sh)
-crosshair uninstall              # remove crosshair entries from ~/.cursor/hooks.json
+crosshair install [--no-rtk]                    # re-run hook install (used by ./install.sh); add --host claude-code for Claude Code
+crosshair uninstall                             # remove crosshair entries from ~/.cursor/hooks.json; add --host claude-code for Claude Code
 
 # rtk subcommands (also callable as `crosshair rtk ...`)
 rtk list                         # every supported command + estimated savings
@@ -448,7 +503,7 @@ everything else in your `hooks.json` is preserved.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
-pytest -q                        # 114 tests, <1s
+pytest -q                        # 147 tests, <1s
 ```
 
 The runtime package is stdlib-only; `pytest` and `pytest-cov` are the only

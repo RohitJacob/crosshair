@@ -146,6 +146,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+crosshair-env/
 
 # Spyder project settings
 .spyderproject
