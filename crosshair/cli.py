@@ -28,7 +28,9 @@ except ImportError:
     # install missed that flag.
     __version__ = "0.0.0+shadowed"
 from crosshair.analytics import render_report
-from crosshair.config import Config, default_config_path, load_config, user_config_path
+from crosshair.claude_code import HANDLERS as CLAUDE_CODE_HANDLERS
+from crosshair.claude_code import get_handler as get_claude_code_handler
+from crosshair.config import Config, default_config_path, load_config, load_config_for_host, user_config_path
 from crosshair.hooks import HANDLERS, get_handler
 from crosshair.logs import EventLogger
 from crosshair.safepoint.handoff import build_handoff_summary
@@ -54,6 +56,26 @@ HOOK_MATCHERS: dict[str, str] = {
 
 CURSOR_HOOKS_JSON = Path("~/.cursor/hooks.json")
 
+# Claude Code event names for each short hook name we support. Unlike Cursor,
+# PostToolUse is wired twice (once unfiltered for tally, once matched to
+# file-editing tools) — see ``CLAUDE_CODE_HOOK_MATCHERS``.
+CLAUDE_CODE_EVENT_MAP = {
+    "session-start": "SessionStart",
+    "before-submit": "UserPromptSubmit",
+    "pre-tool-use": "PreToolUse",
+    "post-tool": "PostToolUse",
+    "after-file-edit": "PostToolUse",
+    "pre-compact": "PreCompact",
+    "stop": "Stop",
+}
+
+CLAUDE_CODE_HOOK_MATCHERS: dict[str, str] = {
+    "pre-tool-use": "Bash",
+    "after-file-edit": "Edit|Write|MultiEdit|NotebookEdit",
+}
+
+CLAUDE_CODE_SETTINGS_JSON = Path("~/.claude/settings.json")
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -71,18 +93,38 @@ def main(argv: list[str] | None = None) -> int:
     hook.add_argument("name", choices=list(HANDLERS.keys()))
     hook.add_argument("--input-file", help="Read stdin from file (debug)", default=None)
 
-    inst = sub.add_parser("install", help="Install Cursor hooks into ~/.cursor/hooks.json")
+    chook = sub.add_parser("claude-hook", help="Claude Code hook entry (used from settings.json)")
+    chook.add_argument("name", choices=list(CLAUDE_CODE_HANDLERS.keys()))
+    chook.add_argument("--input-file", help="Read stdin from file (debug)", default=None)
+
+    inst = sub.add_parser("install", help="Install hooks into a supported host's config file")
     inst.add_argument("--python", default=sys.executable, help="Python interpreter to use")
     inst.add_argument("--dry-run", action="store_true", help="Print plan without writing")
-    inst.add_argument("--hooks-file", default=str(CURSOR_HOOKS_JSON))
+    inst.add_argument(
+        "--host",
+        choices=("cursor", "claude-code"),
+        default="cursor",
+        help="Which host to install hooks for (default: cursor)",
+    )
+    inst.add_argument(
+        "--hooks-file",
+        default=None,
+        help="Override the target file (default: ~/.cursor/hooks.json or ~/.claude/settings.json)",
+    )
     inst.add_argument(
         "--no-rtk",
         action="store_true",
-        help="Install router/safepoint hooks only; skip the rtk preToolUse rewrite hook",
+        help="Install router/safepoint hooks only; skip the rtk pre-tool-use rewrite hook",
     )
 
-    un = sub.add_parser("uninstall", help="Remove crosshair hooks from Cursor hooks.json")
-    un.add_argument("--hooks-file", default=str(CURSOR_HOOKS_JSON))
+    un = sub.add_parser("uninstall", help="Remove crosshair hooks from a supported host's config file")
+    un.add_argument(
+        "--host",
+        choices=("cursor", "claude-code"),
+        default="cursor",
+        help="Which host to remove crosshair hooks from (default: cursor)",
+    )
+    un.add_argument("--hooks-file", default=None)
     un.add_argument("--dry-run", action="store_true")
 
     sub.add_parser("status", help="Show per-conversation state summary")
@@ -126,10 +168,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "hook":
         return _run_hook(args, config)
+    if args.command == "claude-hook":
+        return _run_claude_hook(args)
     if args.command == "install":
-        return _cmd_install(args)
+        return _cmd_install_claude_code(args) if args.host == "claude-code" else _cmd_install(args)
     if args.command == "uninstall":
-        return _cmd_uninstall(args)
+        return _cmd_uninstall_claude_code(args) if args.host == "claude-code" else _cmd_uninstall(args)
     if args.command == "status":
         return _cmd_status(config)
     if args.command == "show":
@@ -190,6 +234,48 @@ def _run_hook(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
+def _run_claude_hook(args: argparse.Namespace) -> int:
+    """Read JSON from stdin (or --input-file), dispatch through the Claude
+    Code adapter, print its JSON to stdout, and exit with its exit code.
+
+    Always fails open on internal error: prints ``{}`` and exits 0 so a bug
+    here never blocks the user's session.
+    """
+    handler = get_claude_code_handler(args.name)
+    if handler is None:
+        sys.stdout.write("{}\n")
+        return 0
+
+    config = load_config_for_host("claude-code")
+    raw = _read_input(args.input_file)
+    try:
+        input_data = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        input_data = {}
+
+    logger = EventLogger(config)
+    store = StateStore(config)
+
+    logger.debug("claude_hook.entry", hook=args.name, keys=list(input_data.keys()))
+
+    try:
+        output, exit_code, stderr_text = handler(input_data, config, logger, store)
+    except Exception as exc:  # noqa: BLE001 — never break a Claude Code session
+        logger.log(
+            "hook_error",
+            hook=args.name,
+            host="claude-code",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+        )
+        output, exit_code, stderr_text = {}, 0, ""
+
+    sys.stdout.write(json.dumps(output, ensure_ascii=False) + "\n")
+    if exit_code != 0 and stderr_text:
+        sys.stderr.write(stderr_text + "\n")
+    return exit_code
+
+
 def _read_input(input_file: str | None) -> str:
     if input_file:
         try:
@@ -228,7 +314,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
         f"{python_exe} -m crosshair hook {{name}}"
     )
 
-    hooks_file = expand(args.hooks_file)
+    hooks_file = expand(args.hooks_file or str(CURSOR_HOOKS_JSON))
     existing: dict[str, Any] = {}
     if hooks_file.exists():
         try:
@@ -325,7 +411,7 @@ def _merge_hooks(
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
-    hooks_file = expand(args.hooks_file)
+    hooks_file = expand(args.hooks_file or str(CURSOR_HOOKS_JSON))
     if not hooks_file.exists():
         print(f"[crosshair] no hooks file at {hooks_file}; nothing to do.")
         return 0
@@ -368,6 +454,157 @@ def _ensure_user_dirs() -> None:
         "~/.cursor/crosshair/state",
         "~/.cursor/crosshair/logs",
     ]:
+        ensure_dir(expand(p))
+
+
+# ---------------------------------------------------------------------------
+# install / uninstall — Claude Code
+# ---------------------------------------------------------------------------
+
+
+def _cmd_install_claude_code(args: argparse.Namespace) -> int:
+    module_path = Path(__file__).resolve().parent.parent
+    python_exe = args.python
+    hook_cmd = (
+        f"/usr/bin/env -u PYTHONPATH PYTHONSAFEPATH=1 "
+        f"{python_exe} -m crosshair claude-hook {{name}}"
+    )
+
+    settings_file = expand(args.hooks_file or str(CLAUDE_CODE_SETTINGS_JSON))
+    existing: dict[str, Any] = {}
+    if settings_file.exists():
+        try:
+            existing = json.loads(settings_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            print(
+                f"[crosshair] existing {settings_file} is not valid JSON; refusing to overwrite.",
+                file=sys.stderr,
+            )
+            return 2
+
+    include_rtk = not getattr(args, "no_rtk", False)
+    merged = _merge_claude_code_hooks(existing, hook_cmd, include_rtk=include_rtk)
+
+    if args.dry_run:
+        print(json.dumps(merged, indent=2))
+        print(f"\n[crosshair] --dry-run: would write to {settings_file}", file=sys.stderr)
+        return 0
+
+    ensure_dir(settings_file.parent)
+    if settings_file.exists():
+        backup = settings_file.with_suffix(
+            f".bak.{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
+        )
+        shutil.copy2(settings_file, backup)
+        print(f"[crosshair] backed up existing settings.json to {backup}", file=sys.stderr)
+
+    settings_file.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    _ensure_user_dirs_claude_code()
+    print(f"[crosshair] installed hooks into {settings_file}")
+    print(f"[crosshair] module root: {module_path}")
+    return 0
+
+
+def _merge_claude_code_hooks(
+    existing: dict[str, Any],
+    hook_cmd_template: str,
+    *,
+    include_rtk: bool = True,
+) -> dict[str, Any]:
+    out: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
+    hooks = dict(out.get("hooks") or {})
+
+    for short, event in CLAUDE_CODE_EVENT_MAP.items():
+        if short == "pre-tool-use" and not include_rtk:
+            cleaned = _strip_crosshair_group(hooks.get(event) or [], CLAUDE_CODE_HOOK_MATCHERS[short])
+            if cleaned:
+                hooks[event] = cleaned
+            else:
+                hooks.pop(event, None)
+            continue
+
+        groups: list[dict[str, Any]] = list(hooks.get(event) or [])
+        matcher = CLAUDE_CODE_HOOK_MATCHERS.get(short, "")
+        # Dedupe: drop any previous crosshair group for this exact matcher so
+        # re-running install is idempotent, then re-add it.
+        groups = _strip_crosshair_group(groups, matcher)
+        groups.append(
+            {
+                "matcher": matcher,
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": hook_cmd_template.format(name=short),
+                        "timeout": 10 if short == "stop" else 5,
+                    }
+                ],
+            }
+        )
+        hooks[event] = groups
+
+    out["hooks"] = hooks
+    return out
+
+
+def _strip_crosshair_group(groups: list[Any], matcher: str) -> list[Any]:
+    kept = [
+        g
+        for g in groups
+        if not (
+            isinstance(g, dict)
+            and g.get("matcher", "") == matcher
+            and any(
+                isinstance(h, dict) and "crosshair" in str(h.get("command", ""))
+                for h in (g.get("hooks") or [])
+            )
+        )
+    ]
+    return kept
+
+
+def _cmd_uninstall_claude_code(args: argparse.Namespace) -> int:
+    settings_file = expand(args.hooks_file or str(CLAUDE_CODE_SETTINGS_JSON))
+    if not settings_file.exists():
+        print(f"[crosshair] no settings file at {settings_file}; nothing to do.")
+        return 0
+    try:
+        data = json.loads(settings_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(f"[crosshair] {settings_file} is not valid JSON; aborting.", file=sys.stderr)
+        return 2
+
+    hooks = dict(data.get("hooks") or {})
+    removed = 0
+    for event, groups in list(hooks.items()):
+        if not isinstance(groups, list):
+            continue
+        kept = []
+        for g in groups:
+            is_crosshair = isinstance(g, dict) and any(
+                isinstance(h, dict) and "crosshair" in str(h.get("command", ""))
+                for h in (g.get("hooks") or [])
+            )
+            if is_crosshair:
+                removed += 1
+            else:
+                kept.append(g)
+        if kept:
+            hooks[event] = kept
+        else:
+            hooks.pop(event, None)
+    data["hooks"] = hooks
+
+    if args.dry_run:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    settings_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    print(f"[crosshair] removed {removed} hook group(s).")
+    return 0
+
+
+def _ensure_user_dirs_claude_code() -> None:
+    for p in ["~/.claude/crosshair", "~/.claude/crosshair/state", "~/.claude/crosshair/logs"]:
         ensure_dir(expand(p))
 
 
